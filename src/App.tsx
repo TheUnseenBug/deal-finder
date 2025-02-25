@@ -33,7 +33,7 @@ function App() {
   return (
     <>
       <main className="max-w-5xl m-auto">
-        <section className="grid grid-cols-6 gap-2 ">
+        <section className="grid grid-cols-5 gap-2 ">
           {scrapedData?.map((data: Product) => (
             <ProductCard data={data} />
           ))}
