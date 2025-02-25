@@ -1,48 +1,46 @@
-import { useState } from 'react'
-import './App.css'
+import { useEffect, useState } from "react";
+import "./App.css";
+import { scrapeData } from "./helpers/scraper"; // Import the scrapeData function
+import ProductCard from "./components/product-card";
+import Product from "./types/product";
 
 function App() {
-  const [url, setUrl] = useState('');
-  const [__scrapedData, setScrapedData] = useState(null);
+  const [scrapedData, setScrapedData] = useState(null);
   const [error, setError] = useState(null);
 
-  const handleScrape = async () => {
+  const ica =
+    "https://www.ica.se/erbjudanden/maxi-ica-stormarknad-ljungby-1004102/";
+  const cityGross = "https://www.citygross.se/matvaror/veckans-erbjudande";
+  const willys = "https://www.willys.se/erbjudanden/butik";
+
+  const handleScrape = async (url: string) => {
     setError(null); // Clear any previous errors
 
     try {
-      const response = await fetch(`http://localhost:3001/scrape?url=${url}`);
-
-      if (!response.ok) {
-        // Handle HTTP errors (e.g., 400, 500)
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Request failed');
-      }
-
-      const data = await response.json();
-      console.log(data)
+      const data = await scrapeData(url); // Use the imported function
       setScrapedData(data);
-    } catch (err) {
-      console.error('Error fetching data:', err);
+    } catch (err: any) {
+      console.error("Error fetching data:", err);
       setError(err.message);
       setScrapedData(null); // Clear any previous data
     }
   };
+
+  useEffect(() => {
+    handleScrape(ica);
+  }, []);
+
   return (
     <>
- <div>
-      <input
-        type="text"
-        value={url}
-        onChange={(e) => setUrl(e.target.value)}
-        placeholder="Enter URL to scrape"
-      />
-      <button onClick={handleScrape}>Scrape</button>
-
-      {error && <div style={{ color: 'red' }}>Error: {error}</div>}
-
-    </div>
+      <main className="max-w-5xl m-auto">
+        <section className="grid grid-cols-6 gap-2 ">
+          {scrapedData?.map((data: Product) => (
+            <ProductCard data={data} />
+          ))}
+        </section>
+      </main>
     </>
-  )
+  );
 }
 
-export default App
+export default App;
