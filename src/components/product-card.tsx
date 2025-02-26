@@ -15,7 +15,7 @@ interface Props {
 
 const ProductCard: FC<Props> = ({ data }) => {
   return (
-    <Card className="flex flex-col rounded-lg">
+    <Card className="flex flex-col rounded-lg bg-slate-900 text-white">
       <CardHeader>
         <CardTitle>{data.title}</CardTitle>
         <CardDescription>
