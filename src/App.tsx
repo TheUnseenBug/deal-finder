@@ -27,12 +27,13 @@ function App() {
   };
 
   useEffect(() => {
-    handleScrape(ica);
+    handleScrape(cityGross);
   }, []);
 
   return (
     <>
       <main className="max-w-5xl m-auto">
+        <h1>Hejsan</h1>
         <section className="grid grid-cols-5 gap-2 ">
           {scrapedData?.map((data: Product) => (
             <ProductCard data={data} />
