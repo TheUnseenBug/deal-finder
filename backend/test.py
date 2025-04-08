@@ -1,11 +1,11 @@
-import requests
-from bs4 import BeautifulSoup
 import subprocess
-import tempfile
 import asyncio
 from pyppeteer import launch
 import json
 import sys
+import re  # Import the regular expression module
+from ollama import Client
+
 print(sys.executable)
 
 
@@ -65,28 +65,73 @@ async def ica_scraper():
 
 
 def run_deepseek(prompt, articles):
+    """
+    Runs the DeepSeek model with the given prompt and scraped article data.
+    """
     try:
         # Convert the articles data to a JSON string
         articles_json = json.dumps(articles, ensure_ascii=False)
-
-        command = [
-            "ollama",
-            "run",
-            "deepseek-r1:8b",
-            f"""{prompt} 
-            {articles_json}
-            Make sure to extract the information accurately.
-            If a value is not present, leave it blank.""",
+        
+        # Create the prompt with the articles data
+        full_prompt = f"""
+        Task: Convert the following product data into a structured JSON array.
+        Each product should have these fields: title, price, category, offerText.
+        
+        Rules:
+        1. Return ONLY valid JSON, no other text
+        2. Use appropriate categories like "Dairy", "Meat", "Produce", etc.
+        3. Keep all original text values as they are
+        4. If a field is missing, use null
+        
+        Input data:
+        {articles_json}
+        
+        Expected format:
+        [
+          {{
+            "title": "Product Name",
+            "price": "Price Value",
+            "category": "Category Name",
+            "offerText": "Offer Text"
+          }},
+          ...
         ]
-
-        process = subprocess.Popen(
-            command, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        """
+        
+        # Create Ollama client
+        client = Client(host='http://localhost:11434')
+        
+        # Generate response using a different model that's better at structured output
+        response = client.chat(
+            model='mistral:7b',  # Using Mistral which tends to be better at following structured output instructions
+            messages=[{
+                'role': 'user',
+                'content': full_prompt
+            }]
         )
-        output, error = process.communicate()
-
-        response_text = output.decode("utf-8").strip()
-
-        return response_text
+        
+        # Extract content from response
+        if response and 'message' in response:
+            content = response['message']['content'].strip()
+            
+            # Try to find JSON array in the response
+            json_match = re.search(r"\[\s*\{.*\}\s*\]", content, re.DOTALL)
+            if json_match:
+                try:
+                    # Clean up the JSON string
+                    json_string = json_match.group(0)
+                    # Remove any potential markdown code block markers
+                    json_string = re.sub(r"```json\s*|\s*```", "", json_string)
+                    # Parse the JSON
+                    return json.loads(json_string)
+                except json.JSONDecodeError as e:
+                    print(f"Error decoding JSON: {e}")
+                    print(f"Problematic JSON: {json_string}")
+            else:
+                print("No JSON array found in response!")
+                print(f"Full response: {content}")
+        
+        return None
 
     except Exception as e:
         print(f"Error running DeepSeek: {e}")
@@ -96,15 +141,24 @@ def run_deepseek(prompt, articles):
 async def main():
     articles = await ica_scraper()
     if articles:
-        user_prompt = """ I want you to categorize every item in the articles array and make it into json data
-        """
-        response = run_deepseek(user_prompt, articles)
+        # Process articles in chunks
+        chunk_size = 5  # Adjust this based on the LLM's context window
+        categorized_items = []
 
-        if response:
-            print("DeepSeek's Response:")
-            print(response)
+        for i in range(0, len(articles), chunk_size):
+            chunk = articles[i : i + chunk_size]
+            response = run_deepseek(None, chunk)  # We don't need the prompt parameter anymore
+
+            if response:
+                categorized_items.extend(response)
+            else:
+                print("Failed to get a response from DeepSeek for a chunk.")
+
+        if categorized_items:
+            print("DeepSeek's Categorized Items:")
+            print(json.dumps(categorized_items, indent=4, ensure_ascii=False))
         else:
-            print("Failed to get a response from DeepSeek.")
+            print("No items were categorized.")
     else:
         print("Failed to scrape articles.")
 
