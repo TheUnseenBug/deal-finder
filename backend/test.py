@@ -66,7 +66,7 @@ async def ica_scraper():
 
 def run_deepseek(prompt, articles):
     """
-    Runs the DeepSeek model with the given prompt and scraped article data.
+    Kör DeepSeek-modellen med den angivna prompten och de skrapade artikeldata.
     """
     try:
         # Convert the articles data to a JSON string
@@ -74,28 +74,37 @@ def run_deepseek(prompt, articles):
         
         # Create the prompt with the articles data
         full_prompt = f"""
-        Task: Convert the following product data into a structured JSON array.
-        Each product should have these fields: title, price, category, offerText.
-        
-        Rules:
-        1. Return ONLY valid JSON, no other text
-        2. Use appropriate categories like "Dairy", "Meat", "Produce", etc.
-        3. Keep all original text values as they are
-        4. If a field is missing, use null
-        
-        Input data:
+          Uppgift: Konvertera följande produktdata till en strukturerad JSON-array.
+    Varje produkt ska ha dessa fält: titel, pris, kategori, erbjudandetext.
+    
+    Regler:
+    1. Returnera ENDAST giltig JSON, ingen annan text
+    2. Använd lämpliga kategorier som "Mejeri", "Kött", "Grönsaker", etc.
+    3. Behåll alla ursprungliga textvärden som de är
+    4. Om ett fält saknas, använd null
+    5. INKLUDERA INGA kommentarer i JSON
+    6. ANVÄND INTE enkla citat för strängar, använd dubbla citat
+    7. INKLUDERA INTE avslutande komman
+    8. INKLUDERA INTE bildfältet i ditt svar - vi lägger till det senare
+    
+    Indata:
         {articles_json}
         
-        Expected format:
-        [
-          {{
-            "title": "Product Name",
-            "price": "Price Value",
-            "category": "Category Name",
-            "offerText": "Offer Text"
-          }},
-          ...
-        ]
+         Förväntat format:
+    [
+      {{
+        "titel": "Produktnamn",
+        "pris": "Priskategori",
+        "kategori": "Kategorinamn",
+        "erbjudandetext": "Erbjudandetext"
+      }},
+      {{
+        "titel": "En annan produkt",
+        "pris": "Ett annat pris",
+        "kategori": "En annan kategori",
+        "erbjudandetext": "Ett annat erbjudande"
+      }}
+    ]
         """
         
         # Create Ollama client
@@ -122,11 +131,63 @@ def run_deepseek(prompt, articles):
                     json_string = json_match.group(0)
                     # Remove any potential markdown code block markers
                     json_string = re.sub(r"```json\s*|\s*```", "", json_string)
+                    # Remove any comments
+                    json_string = re.sub(r"//.*?$", "", json_string, flags=re.MULTILINE)
+                    # Remove any trailing commas
+                    json_string = re.sub(r",\s*}", "}", json_string)
+                    json_string = re.sub(r",\s*\]", "]", json_string)
+                    
                     # Parse the JSON
-                    return json.loads(json_string)
+                    result = json.loads(json_string)
+                    
+                    # Add back the image URLs from the original articles
+                    for i, item in enumerate(result):
+                        if i < len(articles) and 'image' in articles[i]:
+                            item['image'] = articles[i]['image']
+                    
+                    return result
                 except json.JSONDecodeError as e:
                     print(f"Error decoding JSON: {e}")
                     print(f"Problematic JSON: {json_string}")
+                    
+                    # Try a more aggressive approach to fix the JSON
+                    try:
+                        # Extract each item individually using regex
+                        items = []
+                        item_matches = re.finditer(r'{\s*"title":\s*"([^"]*)",\s*"price":\s*"([^"]*)",\s*"category":\s*"([^"]*)",\s*"offerText":\s*"([^"]*)"', json_string)
+                        
+                        for i, match in enumerate(item_matches):
+                            if i < len(articles):
+                                item = {
+                                    "title": match.group(1),
+                                    "price": match.group(2),
+                                    "category": match.group(3),
+                                    "offerText": match.group(4),
+                                    "image": articles[i].get('image', None)
+                                }
+                                items.append(item)
+                        
+                        if items:
+                            return items
+                    except Exception as e2:
+                        print(f"Error extracting items with regex: {e2}")
+                        
+                        # Last resort: use the original articles data
+                        try:
+                            # Create a simplified version of the articles with just the essential fields
+                            items = []
+                            for article in articles:
+                                item = {
+                                    "title": article.get('title', ''),
+                                    "price": article.get('price', ''),
+                                    "category": "Unknown",  # We can't determine this without the LLM
+                                    "offerText": article.get('offerText', ''),
+                                    "image": article.get('image', None)
+                                }
+                                items.append(item)
+                            return items
+                        except Exception as e3:
+                            print(f"Error creating simplified items: {e3}")
             else:
                 print("No JSON array found in response!")
                 print(f"Full response: {content}")
