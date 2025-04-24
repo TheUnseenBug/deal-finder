@@ -5,6 +5,7 @@ import json
 from test import ica_scraper, run_deepseek
 from typing import List, Dict, Any, Optional
 import time
+import db
 
 app = FastAPI(title="ICA Scraper API", description="API for scraping and categorizing ICA products")
 
@@ -46,6 +47,11 @@ async def update_cache():
                     categorized_items.extend(response)
             
             if categorized_items:
+                # Store in database
+                db.clear_database()  # Clear old data
+                db.add_data(categorized_items)  # Add new data
+                
+                # Update cache
                 results_cache["data"] = categorized_items
                 results_cache["last_update"] = time.time()
             else:
@@ -73,7 +79,7 @@ async def root():
 
 @app.get("/products")
 async def get_products():
-    """Get the categorized products from cache or trigger a refresh if needed"""
+    """Get the categorized products from cache or database"""
     current_time = time.time()
     
     # Check if cache is expired or empty
@@ -82,12 +88,26 @@ async def get_products():
         # If not already loading, start a background task to update the cache
         if not results_cache["is_loading"]:
             asyncio.create_task(update_cache())
+        
+        # Try to get data from database while waiting for cache update
+        try:
+            db_products = db.get_all_products()
+            if db_products:
+                return {
+                    "data": db_products,
+                    "last_updated": results_cache["last_update"],
+                    "is_loading": results_cache["is_loading"],
+                    "source": "database"
+                }
+        except Exception as e:
+            print(f"Error retrieving from database: {e}")
     
     # Return cached data (might be None or old if refresh is in progress)
     return {
         "data": results_cache["data"],
         "last_updated": results_cache["last_update"],
-        "is_loading": results_cache["is_loading"]
+        "is_loading": results_cache["is_loading"],
+        "source": "cache"
     }
 
 @app.post("/refresh")
@@ -98,6 +118,11 @@ async def refresh_products(background_tasks: BackgroundTasks):
         return {"message": "Refresh started", "status": "success"}
     else:
         return {"message": "Refresh already in progress", "status": "busy"}
+
+# Initialize the database on startup
+@app.on_event("startup")
+async def startup_event():
+    db.setup()
 
 if __name__ == "__main__":
     import uvicorn
